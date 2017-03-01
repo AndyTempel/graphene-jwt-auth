@@ -15,6 +15,7 @@ class ClientIDMutation(six.with_metaclass(ClientIDMutationMeta, ObjectType)):
 
         # Check permissions first
         # TODO : still need improve this mutation with auth
+        # im not happy with this implementation, i don't know why i can't use super on this method
         cls.check_permission(context)
 
         input = args.get('input')

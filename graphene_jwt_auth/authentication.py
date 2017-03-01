@@ -8,7 +8,7 @@ from graphene_jwt_auth.settings import api_settings
 from graphene_jwt_auth.utils import get_authorization_header
 from django.utils.dateformat import format
 
-change_password_invalidated_old_token = api_settings.CHANGED_PASSWORD_INVALIDATED_OLD_TOKEN
+changed_password_invalidated_old_token = api_settings.CHANGED_PASSWORD_INVALIDATED_OLD_TOKEN
 jwt_decode_handler = api_settings.JWT_DECODE_HANDLER
 jwt_get_username_from_payload = api_settings.JWT_PAYLOAD_GET_USERNAME_HANDLER
 jwt_blacklist_get_handler = api_settings.JWT_BLACKLIST_GET_HANDLER
@@ -47,7 +47,7 @@ class BaseJSONWebTokenAuthentication(object):
 
         user = self.authenticate_credentials(payload)
 
-        if change_password_invalidated_old_token and hasattr(user, 'password_last_changed'):
+        if changed_password_invalidated_old_token and hasattr(user, 'password_last_changed'):
             # will hit database once
             # need implement `password_last_changed` on user models
             orig_iat = int(payload.get('orig_iat'))
