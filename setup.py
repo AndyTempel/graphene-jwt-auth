@@ -27,6 +27,7 @@ name = 'graphene-jwt-auth'
 package = 'graphene_jwt_auth'
 description = 'JSON Web Token based authentication for Django and Graphene'
 url = 'https://github.com/darwin4031/graphene-jwt-auth'
+download_url = 'https://github.com/darwin4031/graphene-jwt-auth/archive/0.0.1.tar.gz'
 author = 'Darwin Herlinmanda Cahyadi'
 author_email = 'darwin4031@gmail.com'
 license = 'MIT'
@@ -83,6 +84,7 @@ setup(
     name=name,
     version=version,
     url=url,
+    download_url=download_url,
     license=license,
     description=description,
     author=author,
@@ -92,7 +94,7 @@ setup(
     cmdclass={'test': PyTest},
     install_requires=install_requires,
     classifiers=[
-        'Development Status :: 5 - Development',
+        'Development Status :: 3 - Alpha',
         'Environment :: Web Environment',
         'Framework :: Django',
         'Intended Audience :: Developers',
