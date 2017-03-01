@@ -1,5 +1,5 @@
 import graphene
-from django.contrib.auth.signals import user_logged_in
+from django.contrib.auth.signals import user_logged_in, user_logged_out
 from django.core.exceptions import ValidationError
 from django.utils.translation import ugettext as _
 from graphene import relay
@@ -166,6 +166,8 @@ class Logout(ClientIDMutation):
 
         payload = form.cleaned_data.get('payload')
         user = form.cleaned_data.get('user')
+
+        user_logged_out.send(sender=user.__class__, request=context, user=user)
 
         if jwt_using_blacklist:
             blacklist = jwt_blacklist_get_handler(payload)
