@@ -48,7 +48,14 @@ DEFAULTS = {
 
     # Utils
     'JWT_DELETE_LONG_RUNNING_TOKEN_WHEN_LOGOUT': False,
+
+    # Throttling
     'CHANGED_PASSWORD_INVALIDATED_OLD_TOKEN': False,
+        'DEFAULT_THROTTLE_RATES': {
+        'user': None,
+        'anon': None,
+    },
+    'NUM_PROXIES': None,
 
     # Graphene
     'QUERIES_USER_NODE':
