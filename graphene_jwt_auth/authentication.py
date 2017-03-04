@@ -1,4 +1,5 @@
 import jwt
+from django.utils.dateformat import format
 from django.utils.encoding import smart_text
 from django.utils.translation import ugettext as _
 
@@ -6,7 +7,6 @@ from graphene_jwt_auth.compat import User
 from graphene_jwt_auth.exceptions import AuthenticationFailed
 from graphene_jwt_auth.settings import api_settings
 from graphene_jwt_auth.utils import get_authorization_header
-from django.utils.dateformat import format
 
 changed_password_invalidated_old_token = api_settings.CHANGED_PASSWORD_INVALIDATED_OLD_TOKEN
 jwt_decode_handler = api_settings.JWT_DECODE_HANDLER
@@ -37,25 +37,13 @@ class BaseJSONWebTokenAuthentication(object):
         except jwt.InvalidTokenError:
             raise AuthenticationFailed()
 
-        if jwt_using_blacklist:
-            # will hit database once
-            blacklisted = jwt_blacklist_get_handler(payload)
-
-            if blacklisted:
-                msg = _("Token has been blacklisted.")
-                raise AuthenticationFailed(msg)
+        # Check blacklist
+        self.check_blacklist(payload)
 
         user = self.authenticate_credentials(payload)
 
-        if changed_password_invalidated_old_token and hasattr(user, 'password_last_changed'):
-            # will hit database once
-            # need implement `password_last_changed` on user models
-            orig_iat = int(payload.get('orig_iat'))
-            password_last_changed = int(format(user.password_last_changed, 'U'))
-
-            if orig_iat < password_last_changed:
-                msg = _("User must re-authenticate after changing password.")
-                raise AuthenticationFailed(msg)
+        # Check if password already change invalidated all old token
+        self.check_changed_password_invalidated_old_token(user, payload)
 
         return user, jwt_value
 
@@ -77,6 +65,26 @@ class BaseJSONWebTokenAuthentication(object):
             raise AuthenticationFailed(msg)
 
         return user
+
+    def check_blacklist(self, payload):
+        if jwt_using_blacklist:
+            # will hit database once
+            blacklisted = jwt_blacklist_get_handler(payload)
+
+            if blacklisted:
+                msg = _("Token has been blacklisted.")
+                raise AuthenticationFailed(msg)
+
+    def check_changed_password_invalidated_old_token(self, user, payload):
+        if changed_password_invalidated_old_token and hasattr(user, 'password_last_changed'):
+            # will hit database once
+            # need implement `password_last_changed` on user models
+            orig_iat = int(payload.get('orig_iat'))
+            password_last_changed = int(format(user.password_last_changed, 'U'))
+
+            if orig_iat < password_last_changed:
+                msg = _("User must re-authenticate after changing password.")
+                raise AuthenticationFailed(msg)
 
 
 class JSONWebTokenAuthentication(BaseJSONWebTokenAuthentication):

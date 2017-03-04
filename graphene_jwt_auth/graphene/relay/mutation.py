@@ -11,45 +11,14 @@ from graphene_jwt_auth.exceptions import NotAuthenticated, NotFound, PermissionD
 
 class ClientIDMutation(GClientIDMutation):
     permission_classes = []
-
-    @classmethod
-    def mutate(cls, root, args, context, info):
-        cls.check_permission(context)
-        print(args)
-
-        return super(ClientIDMutation, cls).mutate(root, args, context, info)
-
-    @classmethod
-    def get_permissions(cls):
-        """
-        Instantiates and returns the list of permissions that this view requires.
-        """
-        return [permission() for permission in cls.permission_classes]
-
-    @classmethod
-    def check_permission(cls, context):
-        """
-        Check if the request should be premitted.
-        Raises an appropriate exception if the request is not permitted.
-        """
-        for permission in cls.get_permissions():
-            if not permission.has_permission(context, cls):
-                cls.permission_denied(context)
-
-    @classmethod
-    def permission_denied(cls, context):
-        if not (context.user and is_authenticated(context.user)):
-            raise NotAuthenticated()
-        raise PermissionDenied()
-
-
-class ClientIDMutation2(GClientIDMutation):
-    permission_classes = []
     throttle_classes = []
-    form_class = None
 
-    method = None   # 'create', 'update', 'delete' only this 3 accepted
+    # for Django Model Permissions
     model = None
+
+    # for permissions
+    method = None  # 'CREATE', 'UPDATE', 'DELETE' only this 3 accepted
+    form_class = None
 
     lookup_field = 'pk'
     lookup_kwarg = None
@@ -62,7 +31,7 @@ class ClientIDMutation2(GClientIDMutation):
         # check throttle
         cls.check_throttles(context)
 
-        return super(ClientIDMutation2, cls).mutate(root, args, context, info)
+        return super(ClientIDMutation, cls).mutate(root, args, context, info)
 
     # Permission
     # ==========
@@ -120,21 +89,29 @@ class ClientIDMutation2(GClientIDMutation):
         this will return instance
         """
 
-        if self.method not in ['create', 'update', 'delete']:
-            msg = "Method {} unknown.".format(repr(self.method))
-            raise Exception(msg)
+        assert self.method is not None, "Method is required for run `run_cud`."
+
+        self.method = self.method.upper()
+
+        assert self.method in ['CREATE', 'UPDATE', 'DELETE'], (
+            "Method {} unknown.".format(repr(self.method))
+        )
 
         global_id = data.get('id')
 
-        if global_id is not None and self.method in ['update', 'delete']:
+        assert global_id is not None and self.method in ['UPDATE', 'DELETE'], (
+            "`id` must be included in input for method 'UPDATE'and 'DELETE"
+        )
+
+        if self.method in ['UPDATE', 'DELETE']:
             self.set_lookup_kwarg(global_id)
             data.pop('id')
 
-        if self.method == 'create':
+        if self.method == 'CREATE':
             return self.create(data)
-        elif self.method == 'update':
+        elif self.method == 'UPDATE':
             return self.update(data)
-        elif self.method == 'delete':
+        elif self.method == 'DELETE':
             return self.delete()
 
     def set_lookup_kwarg(self, global_id):
