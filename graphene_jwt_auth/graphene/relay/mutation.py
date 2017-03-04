@@ -1,37 +1,108 @@
 import binascii
+import re
+from functools import partial
 
+import six
 from django.core.exceptions import ValidationError
 from django.shortcuts import get_object_or_404 as _get_object_or_404
-from graphene.relay.mutation import ClientIDMutation as GClientIDMutation
+from graphene.types import AbstractType, Argument, Field, InputObjectType, String
+from graphene.types.objecttype import ObjectType, ObjectTypeMeta
+from graphene.types.options import Options
+from graphene.utils.is_base_type import is_base_type
+from graphene.utils.props import props
+from graphene_django.utils import is_valid_django_model
 from graphql_relay.node.node import from_global_id
+from promise import Promise
 
 from graphene_jwt_auth.compat import is_authenticated
 from graphene_jwt_auth.exceptions import NotAuthenticated, NotFound, PermissionDenied, Throttled
 
 
-class ClientIDMutation(GClientIDMutation):
-    permission_classes = []
-    throttle_classes = []
+class ClientIDMutationMeta(ObjectTypeMeta):
 
-    # for Django Model Permissions
-    model = None
+    def __new__(cls, name, bases, attrs):
+        # Also ensure initialization is only performed for subclasses of
+        # Mutation
+        if not is_base_type(bases, ClientIDMutationMeta):
+            return type.__new__(cls, name, bases, attrs)
 
-    # for permissions
-    method = None  # 'CREATE', 'UPDATE', 'DELETE' only this 3 accepted
-    form_class = None
+        defaults = dict(
+            name=name,
+            description=attrs.pop('__doc__', None),
+            interfaces=(),
+            local_fields=None,
+            permission_classes=(),
+            throttle_classes=(),
 
-    lookup_field = 'pk'
-    lookup_kwarg = None
+            # for Django Model Permissions
+            model=None,
+
+            # for permissions
+            method=None,  # 'CREATE', 'UPDATE', 'DELETE' only this 3 accepted
+            form_class=None,
+
+            lookup_field='pk',
+            lookup_kwarg=None
+        )
+
+        options = Options(
+            attrs.pop('Config', None),
+            **defaults
+        )
+
+        if options.model is not None:
+            assert is_valid_django_model(options.model), (
+                'You need to pass a valid Django Model in {}.Meta, received "{}".'
+            ).format(name, options.model)
+
+        input_class = attrs.pop('Input', None)
+        base_name = re.sub('Payload$', '', name)
+        if 'client_mutation_id' not in attrs:
+            attrs['client_mutation_id'] = String(name='clientMutationId')
+        cls = ObjectTypeMeta.__new__(cls, '{}Payload'.format(base_name), bases, dict(attrs, _meta=options))
+        mutate_and_get_payload = getattr(cls, 'mutate_and_get_payload', None)
+        if cls.mutate and cls.mutate.__func__ == ClientIDMutation.mutate.__func__:
+            assert mutate_and_get_payload, (
+                "{}.mutate_and_get_payload method is required"
+                " in a ClientIDMutation."
+            ).format(name)
+        input_attrs = {}
+        bases = ()
+        if not input_class:
+            input_attrs = {}
+        elif not issubclass(input_class, AbstractType):
+            input_attrs = props(input_class)
+        else:
+            bases += (input_class, )
+        input_attrs['client_mutation_id'] = String(name='clientMutationId')
+        cls.Input = type('{}Input'.format(base_name), bases + (InputObjectType,), input_attrs)
+        cls.Field = partial(Field, cls, resolver=cls.mutate, input=Argument(cls.Input, required=True))
+
+        return cls
+
+
+class ClientIDMutation(six.with_metaclass(ClientIDMutationMeta, ObjectType)):
 
     @classmethod
     def mutate(cls, root, args, context, info):
-        # check permissions first
         cls.check_permission(context)
+        # cls.check_throttles(context)
 
-        # check throttle
-        cls.check_throttles(context)
+        input = args.get('input')
 
-        return super(ClientIDMutation, cls).mutate(root, args, context, info)
+        def on_resolve(payload):
+            try:
+                payload.client_mutation_id = input.get('clientMutationId')
+            except:
+                raise Exception((
+                    'Cannot set client_mutation_id in the payload object {}'
+                ).format(repr(payload)))
+            return payload
+
+        return Promise.resolve(
+            cls.mutate_and_get_payload(input, context, info)
+        ).then(on_resolve)
+
 
     # Permission
     # ==========
@@ -50,7 +121,7 @@ class ClientIDMutation(GClientIDMutation):
         """
         Instantiates and returns the list of permissions that this view requires.
         """
-        return [permission() for permission in cls.permission_classes]
+        return [permission() for permission in cls._meta.permission_classes]
 
     @classmethod
     def permission_denied(cls, context):
@@ -72,7 +143,7 @@ class ClientIDMutation(GClientIDMutation):
 
     @classmethod
     def get_throttles(cls):
-        return [throttle() for throttle in cls.throttle_classes]
+        return [throttle() for throttle in cls._meta.throttle_classes]
 
     @classmethod
     def throttled(cls, request, wait):
@@ -89,29 +160,29 @@ class ClientIDMutation(GClientIDMutation):
         this will return instance
         """
 
-        assert self.method is not None, "Method is required for run `run_cud`."
+        assert self._meta.method is not None, "Method is required for run `run_cud`."
 
-        self.method = self.method.upper()
+        method = self._meta.method.upper()
 
-        assert self.method in ['CREATE', 'UPDATE', 'DELETE'], (
-            "Method {} unknown.".format(repr(self.method))
+        assert method in ['CREATE', 'UPDATE', 'DELETE'], (
+            "Method {} unknown.".format(repr(method))
         )
 
         global_id = data.get('id')
 
-        assert global_id is not None and self.method in ['UPDATE', 'DELETE'], (
+        assert global_id is not None and method in ['UPDATE', 'DELETE'], (
             "`id` must be included in input for method 'UPDATE'and 'DELETE"
         )
 
-        if self.method in ['UPDATE', 'DELETE']:
+        if method in ['UPDATE', 'DELETE']:
             self.set_lookup_kwarg(global_id)
             data.pop('id')
 
-        if self.method == 'CREATE':
+        if method == 'CREATE':
             return self.create(data)
-        elif self.method == 'UPDATE':
+        elif method == 'UPDATE':
             return self.update(data)
-        elif self.method == 'DELETE':
+        elif method == 'DELETE':
             return self.delete()
 
     def set_lookup_kwarg(self, global_id):
@@ -120,12 +191,12 @@ class ClientIDMutation(GClientIDMutation):
         except (TypeError, ValueError, UnicodeDecodeError, binascii.Error):
             raise ValidationError("Invalid id.")
 
-        self.lookup_kwarg = _id
+        self._meta.lookup_kwarg = _id
 
     def get_object(self):
-        filter_kwargs = {self.lookup_field: self.lookup_kwarg}
+        filter_kwargs = {self._meta.lookup_field: self._meta.lookup_kwarg}
 
-        obj = self.get_object_or_404(self.model, **filter_kwargs)
+        obj = self.get_object_or_404(self._meta.model, **filter_kwargs)
 
         return obj
 
@@ -141,7 +212,7 @@ class ClientIDMutation(GClientIDMutation):
             raise NotFound()
 
     def create(self, data):
-        form = self.form_class(data=data)
+        form = self._meta.form_class(data=data)
         if not form.is_valid():
             raise ValidationError(form.errors)
 
@@ -155,7 +226,7 @@ class ClientIDMutation(GClientIDMutation):
     def update(self, data):
         instance = self.get_object()
 
-        form = self.form_class(instance=instance, data=data)
+        form = self._meta.form_class(instance=instance, data=data)
 
         if not form.is_valid():
             raise ValidationError(form.errors)
