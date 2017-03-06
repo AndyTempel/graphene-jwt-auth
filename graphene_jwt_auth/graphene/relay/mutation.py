@@ -75,6 +75,11 @@ class ClientIDMutationMeta(ObjectTypeMeta):
         else:
             bases += (input_class, )
         input_attrs['client_mutation_id'] = String(name='clientMutationId')
+
+        # If method is update and delete add id to input attrs
+        if options.method is not None and options.method.upper() in ['UPDATE', 'DELETE']:
+            input_attrs['id'] = String(name='id', required=True)
+
         cls.Input = type('{}Input'.format(base_name), bases + (InputObjectType,), input_attrs)
         cls.Field = partial(Field, cls, resolver=cls.mutate, input=Argument(cls.Input, required=True))
 
@@ -86,7 +91,7 @@ class ClientIDMutation(six.with_metaclass(ClientIDMutationMeta, ObjectType)):
     @classmethod
     def mutate(cls, root, args, context, info):
         cls.check_permission(context)
-        # cls.check_throttles(context)
+        cls.check_throttles(context)
 
         input = args.get('input')
 
